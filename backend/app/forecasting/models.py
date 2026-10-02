@@ -49,9 +49,9 @@ class _Supervised:
 
 
 class LinearModel(_Supervised):
-    """L2 logistic regression (direction) + ridge (return). Strong shrinkage by design."""
+    """L2 logistic regression (direction) + ridge (return). C chosen on synthetic null/signal series (not real data): ~zero skill on random walks, positive when signal exists."""
     name = "linear"
-    params = {"logit_C": 0.05, "ridge_alpha": 500.0, "imputer": "median", "scaler": "standard"}
+    params = {"logit_C": 0.001, "ridge_alpha": 500.0, "imputer": "median", "scaler": "standard"}
 
     def _fit(self, X, y):
         self.clf_ = make_pipeline(SimpleImputer(strategy="median"), StandardScaler(),

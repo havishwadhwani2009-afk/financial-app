@@ -13,7 +13,9 @@ log = logging.getLogger(__name__)
 
 def upsert(db: Session, table, rows: list[dict], index_elements: list[str],
            update_cols: list[str] | None = None, chunk: int = 2000) -> int:
-    """Idempotent bulk insert. Existing keys are updated (update_cols) or left untouched."""
+    """Idempotent bulk insert. Existing keys are updated (update_cols) or left untouched.
+    A multi-row INSERT takes its column list from the first row, so rows are grouped by key set to make sure
+    no optional column is silently dropped (and column defaults still apply to omitted keys)."""
     if not rows:
         return 0
     dialect = db.get_bind().dialect.name
@@ -21,17 +23,23 @@ def upsert(db: Session, table, rows: list[dict], index_elements: list[str],
         from sqlalchemy.dialects.postgresql import insert as dinsert
     else:
         from sqlalchemy.dialects.sqlite import insert as dinsert
+    groups: dict[tuple, list[dict]] = {}
+    for r in rows:
+        groups.setdefault(tuple(sorted(r)), []).append(r)
     n = 0
-    for i in range(0, len(rows), chunk):
-        part = rows[i:i + chunk]
-        stmt = dinsert(table).values(part)
-        if update_cols:
-            stmt = stmt.on_conflict_do_update(index_elements=index_elements,
-                                              set_={c: getattr(stmt.excluded, c) for c in update_cols})
-        else:
-            stmt = stmt.on_conflict_do_nothing(index_elements=index_elements)
-        db.execute(stmt)
-        n += len(part)
+    for grp in groups.values():
+        for i in range(0, len(grp), chunk):
+            part = grp[i:i + chunk]
+            stmt = dinsert(table).values(part)
+            if update_cols:
+                cols = [c for c in update_cols if c in part[0]]
+                stmt = stmt.on_conflict_do_update(index_elements=index_elements,
+                                                  set_={c: getattr(stmt.excluded, c) for c in cols}) if cols \
+                    else stmt.on_conflict_do_nothing(index_elements=index_elements)
+            else:
+                stmt = stmt.on_conflict_do_nothing(index_elements=index_elements)
+            db.execute(stmt)
+            n += len(part)
     return n
 
 

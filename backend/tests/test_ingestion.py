@@ -71,3 +71,22 @@ def test_upsert_updates_when_requested(db):
     upsert(db, Price.__table__, [{**row, "close": 2.0}], ["instrument_id", "date", "provider"], ["close"])
     db.commit()
     assert db.scalar(select(Price.close)) == 2.0
+
+
+def test_seed_universe_keeps_etf_names_and_sectors(db):
+    """Regression: heterogeneous seed rows must not lose optional columns (name/sector)."""
+    jobs.seed_universe(db)
+    spy = db.scalar(select(Instrument).where(Instrument.symbol == "SPY"))
+    assert spy.name == "SPDR S&P 500 ETF Trust" and spy.sector == "US large-cap equity"
+    aapl = db.scalar(select(Instrument).where(Instrument.symbol == "AAPL"))
+    assert aapl.name is None and aapl.instrument_type == "stock"
+    jobs.seed_universe(db)  # idempotent
+    assert db.scalar(select(func.count()).select_from(Instrument)) == 26 + 19 + 5
+
+
+def test_upsert_rejects_nothing_with_mixed_keys(db):
+    from app.models import DataProvider
+    upsert(db, DataProvider.__table__, [dict(name="a", kind="k", base_url="u"),
+                                        dict(name="b", kind="k", base_url="u", notes="n", official=True)], ["name"])
+    db.commit()
+    assert db.scalar(select(DataProvider.notes).where(DataProvider.name == "b")) == "n"
